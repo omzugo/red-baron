@@ -5,7 +5,7 @@ import Map, { Layer, Source } from 'react-map-gl/mapbox';
 import type { MapRef, MapMouseEvent } from 'react-map-gl/mapbox';
 import type * as GeoJSON from 'geojson';
 import type { Property, PropertyFilters } from '@/lib/types';
-import { getMarkerColor } from '@/lib/mapUtils';
+import { getMarkerColor, toTitleCase, formatCurrency } from '@/lib/mapUtils';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 type Institution = 'mit' | 'harvard';
@@ -15,6 +15,9 @@ const INSTITUTION_VIEWS: Record<Institution, { center: [number, number]; zoom: n
   mit:     { center: [-71.101, 42.360], zoom: 14.2 },
   harvard: { center: [-71.125, 42.369], zoom: 14.0 },
 };
+
+// Ctrl+drag (or right-click drag) tilts the map — capped subtly, bearing stays locked north
+const MAX_PITCH = 45;
 
 interface PropertyMapProps {
   properties: Property[];
@@ -26,6 +29,7 @@ interface PropertyMapProps {
   resetViewTrigger?: number;
   onUserMove?: () => void;
   onDeselect?: () => void;
+  onReady?: () => void;
 }
 
 
@@ -45,13 +49,21 @@ export default function PropertyMap({
   resetViewTrigger,
   onUserMove,
   onDeselect,
+  onReady,
 }: PropertyMapProps) {
   const mapRef = useRef<MapRef>(null);
+  const hasFiredReady = useRef(false);
+  const handleIdle = useCallback(() => {
+    if (hasFiredReady.current) return;
+    hasFiredReady.current = true;
+    onReady?.();
+  }, [onReady]);
   const [viewState, setViewState] = useState(() => {
     const { center, zoom } = INSTITUTION_VIEWS[institution];
     return { longitude: center[0], latitude: center[1], zoom, pitch: 0, bearing: 0 };
   });
   const [hoveredPropertyId, setHoveredPropertyId] = useState<string | null>(null);
+  const [hoverTooltip, setHoverTooltip] = useState<{ x: number; y: number; label: string; value: string | null } | null>(null);
 
   const filteredProperties = useMemo(() => {
     return properties.filter(property => {
@@ -118,18 +130,40 @@ export default function PropertyMap({
     if (property) onPropertySelect(property);
   }, [properties, onPropertySelect, onDeselect]);
 
-  const handleMouseEnter = useCallback((event: MapMouseEvent) => {
-    if (mapRef.current) mapRef.current.getCanvas().style.cursor = 'pointer';
-    const id = event.features?.[0]?.properties?.id || null;
+  const handleMouseMove = useCallback((event: MapMouseEvent) => {
+    const feature = event.features?.[0];
+    if (mapRef.current) mapRef.current.getCanvas().style.cursor = feature ? 'pointer' : '';
+    const id = feature?.properties?.id || null;
     setHoveredPropertyId(id);
-  }, []);
+    if (!id) { setHoverTooltip(null); return; }
+    const property = properties.find(p => p.id === id);
+    const label = toTitleCase(property?.buildingName || property?.address || '');
+    const value = formatCurrency(property?.assessorData?.landValue);
+    setHoverTooltip({ x: event.point.x, y: event.point.y, label, value });
+  }, [properties]);
 
   const handleMouseLeave = useCallback(() => {
     if (mapRef.current) mapRef.current.getCanvas().style.cursor = '';
     setHoveredPropertyId(null);
+    setHoverTooltip(null);
+  }, []);
+
+  // Allow Ctrl/right-click drag to tilt (pitch) the map, but lock bearing so it never rotates off north
+  const handleMapLoad = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    map.touchZoomRotate.disableRotation();
+    map.keyboard.disableRotation();
+    map.on('rotate', () => {
+      if (map.getBearing() !== 0) map.setBearing(0);
+    });
   }, []);
 
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+
+  useEffect(() => {
+    if (!mapboxToken) handleIdle();
+  }, [mapboxToken, handleIdle]);
 
   if (!mapboxToken) {
     return (
@@ -151,11 +185,15 @@ export default function PropertyMap({
         mapStyle="mapbox://styles/mapbox/satellite-v9"
         mapboxAccessToken={mapboxToken}
         minZoom={13}
+        minPitch={0}
+        maxPitch={MAX_PITCH}
         interactiveLayerIds={['building-fills', 'building-outlines']}
         onClick={handleMapClick}
-        onMouseEnter={handleMouseEnter}
+        onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onMoveStart={(evt) => { if ((evt as any).originalEvent) onUserMove?.(); }}
+        onLoad={handleMapLoad}
+        onIdle={handleIdle}
       >
         <Source id="parcels" type="geojson" data={parcelBoundariesGeoJSON}>
           <Layer
@@ -207,6 +245,23 @@ export default function PropertyMap({
           background: 'radial-gradient(ellipse at center, transparent 28%, rgba(0,0,0,0.18) 50%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.82) 88%)',
         }}
       />
+
+      {/* Hover tooltip — parcel name/address + estimated land value */}
+      {hoverTooltip && (
+        <div
+          className="absolute z-10 pointer-events-none rounded-full bg-black/10 backdrop-blur-[50px] border border-white/[0.07] px-3 py-1.5 text-white text-[12px] leading-none whitespace-nowrap"
+          style={{
+            left: hoverTooltip.x + 14,
+            top: hoverTooltip.y,
+            transform: 'translateY(-50%)',
+            fontFamily: 'var(--font-hedvig-sans), "Hedvig Letters Sans", sans-serif',
+            boxShadow: 'none',
+          }}
+        >
+          {hoverTooltip.label}
+          {hoverTooltip.value && <span className="ml-1.5 opacity-50">{hoverTooltip.value}</span>}
+        </div>
+      )}
     </div>
   );
 }

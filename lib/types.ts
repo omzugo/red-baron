@@ -4,6 +4,7 @@ export interface Property {
   id: string;
   address: string;
   buildingName?: string;
+  aliases?: string[]; // colloquial/informal names people might search for (nicknames, abbreviations, former names)
   coordinates: {
     lat: number;
     lng: number;

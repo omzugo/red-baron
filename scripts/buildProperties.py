@@ -75,6 +75,7 @@ def build_property(feat: dict, enrichment: dict, idx: int) -> dict:
         "id": f"cambridge-{ml.replace('/', '-')}",
         "address": p.get("address", "Unknown"),
         "buildingName": enrich.get("buildingName"),
+        "aliases": enrich.get("aliases"),
         "coordinates": {"lat": round(lat, 6), "lng": round(lng, 6)},
         "ownership": {
             "type": enrich.get("ownershipType", "full"),

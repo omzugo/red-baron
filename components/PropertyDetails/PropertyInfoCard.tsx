@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Property } from '@/lib/types';
+import { toTitleCase, formatCurrency } from '@/lib/mapUtils';
 
 interface PropertyInfoCardProps {
   property: Property;
@@ -54,31 +55,9 @@ const SOURCE_URLS: Record<string, string> = {
     'https://gisportal.boston.gov/arcgis/rest/services/Assessing/PROPERTY_ASSESSMENT_PARCEL_JOIN_FY26/FeatureServer/0?f=html',
 };
 
-function formatCurrency(n: number | undefined): string | null {
-  if (!n) return null;
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
-  return `$${n.toLocaleString()}`;
-}
-
 const serifStyle: React.CSSProperties = {
   fontFamily: 'var(--font-hedvig-serif), "Hedvig Letters Serif", serif',
 };
-
-// All-caps words that should stay all-caps: US state codes + common entity suffixes
-const KEEP_CAPS = new Set([
-  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
-  'KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
-  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT',
-  'VA','WA','WV','WI','WY','DC','LLC','LLP','INC','CORP','US','USA','PO',
-]);
-
-function toTitleCase(str: string): string {
-  // Convert each all-caps word individually; leave mixed-case words untouched
-  return str.replace(/\b[A-Z]{2,}\b/g, word =>
-    KEEP_CAPS.has(word) ? word : word.charAt(0) + word.slice(1).toLowerCase()
-  );
-}
 
 export default function PropertyInfoCard({ property, onClose }: PropertyInfoCardProps) {
   const [imgState, setImgState] = useState<'loading' | 'ok' | 'error'>('loading');
@@ -91,10 +70,14 @@ export default function PropertyInfoCard({ property, onClose }: PropertyInfoCard
   const dataSource = property.assessorData?.dataSource || property.sources[0] || null;
   const title = toTitleCase(property.buildingName || property.address);
 
+  // Manually supplied photo (public/images/properties) takes precedence over Street View —
+  // used where Street View has no coverage or returns a bad angle
+  const manualPhoto = property.photos?.[0];
   const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const streetViewUrl = mapsKey
     ? `https://maps.googleapis.com/maps/api/streetview?size=736x370&location=${property.coordinates.lat},${property.coordinates.lng}&key=${mapsKey}&return_error_codes=true`
     : null;
+  const imageUrl = manualPhoto || streetViewUrl;
 
   const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${property.coordinates.lat},${property.coordinates.lng}`;
 
@@ -111,20 +94,20 @@ export default function PropertyInfoCard({ property, onClose }: PropertyInfoCard
       <div className="p-4">
         {/* Street view image */}
         <div style={anim(0)}>
-          {streetViewUrl ? (
+          {imageUrl ? (
             <div className="rounded-xl border border-white/[0.24] h-[185px] overflow-hidden mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                key={streetViewUrl}
-                src={streetViewUrl}
-                alt={`Street view of ${title}`}
+                key={imageUrl}
+                src={imageUrl}
+                alt={`${manualPhoto ? 'Photo' : 'Street view'} of ${title}`}
                 className={`w-full h-full object-cover transition-opacity duration-300 ${imgState === 'ok' ? 'opacity-100' : 'opacity-0'}`}
                 onLoad={() => setImgState('ok')}
                 onError={() => setImgState('error')}
               />
               {imgState === 'error' && (
                 <div className="flex items-center justify-center h-full text-xs text-white/40">
-                  Street view unavailable
+                  {manualPhoto ? 'Photo unavailable' : 'Street view unavailable'}
                 </div>
               )}
             </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import PropertyMap from '@/components/Map/PropertyMap';
 import PropertyInfoCard from '@/components/PropertyDetails/PropertyInfoCard';
+import LoadingScreen from '@/components/LoadingScreen';
 import type { Property, PropertyFilters, PropertyCategory, EntityType } from '@/lib/types';
 
 type Institution = 'mit' | 'harvard';
@@ -76,11 +77,13 @@ export default function Home() {
 
   const [year, setYear] = useState<Year>(2026);
   const [properties, setProperties] = useState<Property[]>([]);
+  const [dataReady, setDataReady] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     fetch(`/data/${institution}_fy${year}.json`)
       .then(r => r.json())
-      .then(setProperties);
+      .then(data => { setProperties(data); setDataReady(true); });
   }, [institution, year]);
 
   const searchResults = useMemo(() => {
@@ -90,6 +93,7 @@ export default function Home() {
       .filter(p =>
         p.address.toLowerCase().includes(q) ||
         (p.buildingName?.toLowerCase().includes(q)) ||
+        p.aliases?.some(alias => alias.toLowerCase().includes(q)) ||
         p.currentUse?.toLowerCase().includes(q) ||
         p.ownership.entity.toLowerCase().includes(q) ||
         p.assessorData?.ownerName?.toLowerCase().includes(q)
@@ -172,7 +176,10 @@ export default function Home() {
         resetViewTrigger={resetViewKey}
         onUserMove={() => setIsAtDefaultView(false)}
         onDeselect={() => setSelectedProperty(null)}
+        onReady={() => setMapReady(true)}
       />
+
+      <LoadingScreen loaded={mapReady && dataReady} />
 
       {/* Search — top left */}
       <div ref={searchWrapperRef} className="absolute top-5 left-5 z-20">
