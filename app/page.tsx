@@ -76,21 +76,29 @@ export default function Home() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [year, setYear] = useState<Year>(2026);
-  const [properties, setProperties] = useState<Property[]>([]);
+  // Both institutions are loaded so search can span them regardless of the toggle
+  const [allProperties, setAllProperties] = useState<Record<Institution, Property[]>>({ mit: [], harvard: [] });
+  const properties = allProperties[institution];
   const [dataReady, setDataReady] = useState(false);
   const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
-    fetch(`/data/${institution}_fy${year}.json`)
-      .then(r => r.json())
-      .then(data => { setProperties(data); setDataReady(true); });
-  }, [institution, year]);
+    const load = (key: Institution) =>
+      fetch(`/data/${key}_fy${year}.json`).then(r => r.json() as Promise<Property[]>);
+    Promise.all([load('mit'), load('harvard')]).then(([mit, harvard]) => {
+      setAllProperties({ mit, harvard });
+      setDataReady(true);
+    });
+  }, [year]);
 
   const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (q.length < 2) return [];
-    return properties
-      .filter(p =>
+    // Current institution's matches first, then the other's
+    const other: Institution = institution === 'mit' ? 'harvard' : 'mit';
+    return [institution, other]
+      .flatMap(key => allProperties[key].map(p => ({ property: p, institution: key })))
+      .filter(({ property: p }) =>
         p.address.toLowerCase().includes(q) ||
         (p.buildingName?.toLowerCase().includes(q)) ||
         p.aliases?.some(alias => alias.toLowerCase().includes(q)) ||
@@ -99,7 +107,7 @@ export default function Home() {
         p.assessorData?.ownerName?.toLowerCase().includes(q)
       )
       .slice(0, 7);
-  }, [searchQuery, properties]);
+  }, [searchQuery, allProperties, institution]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -158,6 +166,13 @@ export default function Home() {
     setFilters(f => ({ ...f, categories: [], entityTypes: [] }));
   };
 
+  const selectSearchResult = (property: Property, key: Institution) => {
+    if (key !== institution) switchInstitution(key);
+    handlePropertySelect(property);
+    setSearchOpen(false);
+    setSearchQuery('');
+  };
+
   const resetToDefaultView = () => {
     setResetViewKey(k => k + 1);
     setIsAtDefaultView(true);
@@ -185,7 +200,7 @@ export default function Home() {
       <div ref={searchWrapperRef} className="absolute top-5 left-5 z-20">
         {/* Expanding pill */}
         <div
-          className="relative h-11 rounded-full bg-black/10 backdrop-blur-[50px] border border-white/[0.07] flex items-center overflow-hidden"
+          className="relative h-11 rounded-full flex items-center overflow-hidden bg-black/10 backdrop-blur-[50px] border border-white/[0.07]"
           style={{
             width: searchOpen ? 272 : 44,
             transition: 'width 350ms ease-in-out',
@@ -207,7 +222,7 @@ export default function Home() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search properties…"
-            className="flex-1 min-w-0 bg-transparent outline-none text-white text-[13px] placeholder:text-white/35 pr-2"
+            className="flex-1 min-w-0 bg-transparent outline-none text-white text-[12px] placeholder:text-white/35 pr-2"
             style={{
               opacity: searchOpen ? 1 : 0,
               pointerEvents: searchOpen ? 'auto' : 'none',
@@ -230,19 +245,26 @@ export default function Home() {
         {/* Results dropdown */}
         {searchOpen && searchResults.length > 0 && (
           <div
-            className="mt-2 rounded-2xl bg-black/10 backdrop-blur-[50px] border border-white/[0.07] overflow-hidden"
+            className="mt-2 rounded-2xl overflow-hidden bg-black/10 backdrop-blur-[50px] border border-white/[0.07]"
             style={{ animation: 'search-results-in 200ms ease-out' }}
           >
-            {searchResults.map((p, i) => (
+            {searchResults.map(({ property: p, institution: key }, i) => (
               <button
                 key={p.id}
-                onClick={() => { handlePropertySelect(p); setSearchOpen(false); setSearchQuery(''); }}
-                className={`w-full flex flex-col items-start gap-0.5 px-4 py-3 hover:bg-white/[0.06] active:bg-white/[0.1] transition-colors text-left ${i > 0 ? 'border-t border-white/[0.06]' : ''}`}
+                onClick={() => selectSearchResult(p, key)}
+                className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.06] active:bg-white/[0.1] transition-colors text-left ${i > 0 ? 'border-t border-white/[0.06]' : ''}`}
               >
-                <span className="text-white text-[13px] leading-tight">{p.buildingName || p.address}</span>
-                <span className="text-white/45 text-[11px] leading-tight">
-                  {p.buildingName ? p.address : (formatUse(p.currentUse) || p.category)}
+                <span className="flex-1 min-w-0 flex flex-col items-start gap-0.5">
+                  <span className="text-white text-[12px] leading-tight">{p.buildingName || p.address}</span>
+                  <span className="text-white/45 text-[11px] leading-tight">
+                    {p.buildingName ? p.address : (formatUse(p.currentUse) || p.category)}
+                  </span>
                 </span>
+                {key !== institution && (
+                  <span className="shrink-0 text-white/40 text-[10px] leading-none">
+                    {key === 'mit' ? 'MIT' : 'Harvard'}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -251,10 +273,10 @@ export default function Home() {
         {/* No results */}
         {searchOpen && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
           <div
-            className="mt-2 rounded-2xl bg-black/10 backdrop-blur-[50px] border border-white/[0.07] px-4 py-3"
+            className="mt-2 rounded-2xl px-4 py-3 bg-black/10 backdrop-blur-[50px] border border-white/[0.07]"
             style={{ animation: 'search-results-in 200ms ease-out' }}
           >
-            <span className="text-white/40 text-[13px]">No results</span>
+            <span className="text-white/40 text-[12px]">No results</span>
           </div>
         )}
       </div>
@@ -275,7 +297,9 @@ export default function Home() {
 
       {/* Institution toggle — top center */}
       <div className="absolute top-5 left-1/2 -translate-x-1/2 z-10">
-        <div className="relative flex items-center h-11 rounded-full bg-black/10 backdrop-blur-[50px] px-0.5 overflow-hidden">
+        <div
+          className="relative flex items-center h-11 rounded-full px-0.5 overflow-hidden bg-black/10 backdrop-blur-[50px]"
+        >
           {/* Sliding pill */}
           {pillStyle && (
             <div
@@ -307,7 +331,7 @@ export default function Home() {
             </span>
             <span
               ref={harvardTextRef}
-              className="text-[13px] text-white whitespace-nowrap leading-none"
+              className="text-[12px] text-white whitespace-nowrap leading-none"
               style={{
                 opacity: institution === 'harvard' ? 1 : 0.55,
                 transition: 'opacity 350ms ease-in-out',
@@ -336,7 +360,7 @@ export default function Home() {
             </span>
             <span
               ref={mitTextRef}
-              className="text-[13px] text-white whitespace-nowrap leading-none"
+              className="text-[12px] text-white whitespace-nowrap leading-none"
               style={{
                 opacity: institution === 'mit' ? 1 : 0.55,
                 transition: 'opacity 350ms ease-in-out',
@@ -363,7 +387,7 @@ export default function Home() {
               >
                 <div className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${active ? 'bg-white' : 'bg-white/30'}`} />
                 <span
-                  className={`text-white text-[13px] leading-none transition-opacity ${active ? 'opacity-100' : 'opacity-40'}`}
+                  className={`text-white text-[12px] leading-none transition-opacity ${active ? 'opacity-100' : 'opacity-40'}`}
                   style={{ fontFamily: 'var(--font-hedvig-serif), "Hedvig Letters Serif", serif' }}
                 >
                   {YEAR_LABELS[y]}
@@ -387,7 +411,7 @@ export default function Home() {
               >
                 <div className="w-2 h-2 shrink-0" style={{ backgroundColor: color }} />
                 <span
-                  className="text-white text-[13px] leading-none"
+                  className="text-white text-[12px] leading-none"
                   style={{ fontFamily: 'var(--font-hedvig-serif), "Hedvig Letters Serif", serif' }}
                 >
                   {label}
@@ -415,7 +439,7 @@ export default function Home() {
               >
                 <div className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${isActive ? 'bg-white' : 'bg-white/30'}`} />
                 <span
-                  className={`text-white text-[13px] leading-none transition-opacity ${isActive ? 'opacity-100' : 'opacity-40'}`}
+                  className={`text-white text-[12px] leading-none transition-opacity ${isActive ? 'opacity-100' : 'opacity-40'}`}
                   style={{ fontFamily: 'var(--font-hedvig-serif), "Hedvig Letters Serif", serif' }}
                 >
                   {label}

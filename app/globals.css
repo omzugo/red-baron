@@ -5,6 +5,13 @@
   --font-hedvig-serif: var(--font-hedvig-serif), "Libre Baskerville", serif;
 }
 
+/* EXPERIMENT: Google Sans 400 everywhere, in place of Hedvig/Baskerville.
+   To revert: delete this rule (the @theme block above is untouched). */
+:root {
+  --font-hedvig-sans: var(--font-google-sans-experiment), "Google Sans", sans-serif !important;
+  --font-hedvig-serif: var(--font-google-sans-experiment), "Google Sans", sans-serif !important;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -72,8 +79,45 @@ body {
   to   { opacity: 1; transform: translateY(0);   }
 }
 
+/* Gentle drift, as if the camera is hovering above the ground.
+   Two layered loops with unrelated periods so the motion never visibly repeats. */
+@keyframes camera-float-a {
+  0%   { translate: 0 0; }
+  25%  { translate: 11px -8px; }
+  50%  { translate: 3px 10px; }
+  75%  { translate: -10px 3px; }
+  100% { translate: 0 0; }
+}
+
+@keyframes camera-float-b {
+  0%   { transform: translate(0, 0); }
+  33%  { transform: translate(-5px, 5px); }
+  66%  { transform: translate(5px, 2px); }
+  100% { transform: translate(0, 0); }
+}
+
+.camera-float {
+  animation:
+    camera-float-a 23s ease-in-out infinite,
+    camera-float-b 9.7s ease-in-out infinite;
+  will-change: translate, transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .camera-float { animation: none; }
+}
+
 /* Move Mapbox logo to center bottom */
 .mapboxgl-ctrl-bottom-left {
   left: 50% !important;
   transform: translateX(-50%) !important;
+}
+
+/* Keep controls on-screen inside the oversized floating map layer (-inset-6 = 24px) */
+.camera-float .mapboxgl-ctrl-bottom-left,
+.camera-float .mapboxgl-ctrl-bottom-right {
+  bottom: 24px;
+}
+.camera-float .mapboxgl-ctrl-bottom-right {
+  right: 24px;
 }

@@ -177,7 +177,9 @@ export default function PropertyMap({
   }
 
   return (
-    <div className="h-full w-full relative">
+    <div className="h-full w-full relative overflow-hidden">
+      {/* Oversized so the floating drift never reveals an edge; translate-only so Mapbox hit-testing stays exact */}
+      <div className="absolute -inset-6 camera-float">
       <Map
         ref={mapRef}
         {...viewState}
@@ -228,28 +230,10 @@ export default function PropertyMap({
         </Source>
       </Map>
 
-      {/* Edge blur — backdrop-filter masked to edges only */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backdropFilter: 'blur(7px)',
-          WebkitBackdropFilter: 'blur(7px)',
-          maskImage: 'radial-gradient(ellipse at center, transparent 32%, black 62%)',
-          WebkitMaskImage: 'radial-gradient(ellipse at center, transparent 32%, black 62%)',
-        }}
-      />
-      {/* Vignette — smooth darkening on top of the blur */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: 'radial-gradient(ellipse at center, transparent 28%, rgba(0,0,0,0.18) 50%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.82) 88%)',
-        }}
-      />
-
       {/* Hover tooltip — parcel name/address + estimated land value */}
       {hoverTooltip && (
         <div
-          className="absolute z-10 pointer-events-none rounded-full bg-black/10 backdrop-blur-[50px] border border-white/[0.07] px-3 py-1.5 text-white text-[12px] leading-none whitespace-nowrap"
+          className="absolute z-10 pointer-events-none rounded-full px-3 py-1.5 text-white text-[12px] leading-none whitespace-nowrap bg-black/10 backdrop-blur-[50px] border border-white/[0.07]"
           style={{
             left: hoverTooltip.x + 14,
             top: hoverTooltip.y,
@@ -262,6 +246,45 @@ export default function PropertyMap({
           {hoverTooltip.value && <span className="ml-1.5 opacity-50">{hoverTooltip.value}</span>}
         </div>
       )}
+      </div>
+
+      {/* Edge blur — three staggered masked layers stacked so blur keeps compounding
+          toward the outer edge instead of capping at one fixed radius. Still 0 at center. */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)',
+          maskImage: 'radial-gradient(ellipse at center, transparent 46%, black 68%)',
+          WebkitMaskImage: 'radial-gradient(ellipse at center, transparent 46%, black 68%)',
+        }}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
+          maskImage: 'radial-gradient(ellipse at center, transparent 58%, black 80%)',
+          WebkitMaskImage: 'radial-gradient(ellipse at center, transparent 58%, black 80%)',
+        }}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backdropFilter: 'blur(26px)',
+          WebkitBackdropFilter: 'blur(26px)',
+          maskImage: 'radial-gradient(ellipse at center, transparent 70%, black 93%)',
+          WebkitMaskImage: 'radial-gradient(ellipse at center, transparent 70%, black 93%)',
+        }}
+      />
+      {/* Vignette — smooth darkening on top of the blur */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: 'radial-gradient(ellipse at center, transparent 28%, rgba(0,0,0,0.18) 50%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.82) 88%)',
+        }}
+      />
+
     </div>
   );
 }
