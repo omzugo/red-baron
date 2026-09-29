@@ -196,6 +196,18 @@ export default function Home() {
 
       <LoadingScreen loaded={mapReady && dataReady} />
 
+      {/* Below the md breakpoint: blur the whole interface and explain it's desktop-only.
+          Pure CSS (md:hidden), so it's right on first paint with no hydration flash.
+          Sits above the loading screen so phones get the message immediately. */}
+      <div
+        role="alert"
+        className="md:hidden fixed inset-0 z-[300] flex items-center justify-center px-8 bg-black/40 backdrop-blur-xl"
+      >
+        <p className="max-w-[260px] text-center text-white/85 text-[14px] leading-snug">
+          This website currently only works on desktop screens.
+        </p>
+      </div>
+
       {/* Search — top left */}
       <div ref={searchWrapperRef} className="absolute top-5 left-5 z-20">
         {/* Expanding pill */}
