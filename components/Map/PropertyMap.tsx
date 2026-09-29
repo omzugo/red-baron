@@ -96,6 +96,29 @@ export default function PropertyMap({
       })),
   }), [filteredProperties]);
 
+  // Focus mask: black over the whole world with the selected parcel cut out. The last
+  // selection is kept so the mask can fade out in place after deselecting.
+  const lastSelectedGeometry = useRef<GeoJSON.Geometry | null>(null);
+  if (selectedProperty) {
+    lastSelectedGeometry.current = (selectedProperty.parcelGeometry as GeoJSON.Geometry | undefined) ?? null;
+  }
+  const focusMaskGeoJSON = useMemo(() => {
+    const geom = lastSelectedGeometry.current;
+    const holes =
+      geom?.type === 'Polygon' ? [geom.coordinates[0]] :
+      geom?.type === 'MultiPolygon' ? geom.coordinates.map(poly => poly[0]) :
+      [];
+    return {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [[[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]], ...holes],
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProperty?.id]);
+
   // Smooth fly to institution cluster when toggling MIT ↔ Harvard
   const isFirstRender = useRef(true);
   useEffect(() => {
@@ -111,14 +134,40 @@ export default function PropertyMap({
     mapRef.current?.flyTo({ center, zoom, duration: 1200, essential: true });
   }, [resetViewTrigger]);
 
-  // Smooth zoom into a selected property
+  // Smooth zoom into a selected property: fit the whole parcel inside the sharp (un-vignetted)
+  // centre and clear of the info card, but never closer than the old fixed zoom of 16
   useEffect(() => {
     if (!focusedPropertyId) return;
     const property = properties.find(p => p.id === focusedPropertyId);
-    if (!property) return;
-    mapRef.current?.flyTo({
-      center: [property.coordinates.lng, property.coordinates.lat],
-      zoom: 16,
+    const map = mapRef.current;
+    if (!property || !map) return;
+
+    const geom = property.parcelGeometry as GeoJSON.Geometry | undefined;
+    const rings =
+      geom?.type === 'Polygon' ? geom.coordinates :
+      geom?.type === 'MultiPolygon' ? geom.coordinates.flat() :
+      null;
+    if (!rings) {
+      map.flyTo({ center: [property.coordinates.lng, property.coordinates.lat], zoom: 16, duration: 1200 });
+      return;
+    }
+
+    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+    for (const [lng, lat] of rings.flat()) {
+      minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
+      minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+    }
+
+    const { clientWidth: w, clientHeight: h } = map.getContainer();
+    const INFO_CARD_CLEARANCE = 360 + 60; // card width + its margin and a little air
+    map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+      padding: {
+        top: h * 0.22,
+        bottom: h * 0.22,
+        left: w * 0.22,
+        right: Math.max(w * 0.22, INFO_CARD_CLEARANCE),
+      },
+      maxZoom: 16,
       duration: 1200,
     });
   }, [focusedPropertyId, properties]);
@@ -127,8 +176,11 @@ export default function PropertyMap({
     const feature = event.features?.[0];
     if (!feature) { onDeselect?.(); return; }
     const property = properties.find(p => p.id === feature.properties?.id);
-    if (property) onPropertySelect(property);
-  }, [properties, onPropertySelect, onDeselect]);
+    if (!property) return;
+    // Clicking the already-selected parcel toggles it off
+    if (property.id === selectedProperty?.id) onDeselect?.();
+    else onPropertySelect(property);
+  }, [properties, selectedProperty?.id, onPropertySelect, onDeselect]);
 
   const handleMouseMove = useCallback((event: MapMouseEvent) => {
     const feature = event.features?.[0];
@@ -205,7 +257,8 @@ export default function PropertyMap({
               'fill-color': ['get', 'color'],
               'fill-opacity': [
                 'case',
-                ['==', ['get', 'id'], selectedProperty?.id || ''], 0.65,
+                // Selected parcel: no fill — the focus mask around it does the highlighting
+                ['==', ['get', 'id'], selectedProperty?.id || ''], 0,
                 ['==', ['get', 'id'], hoveredPropertyId || ''], 0.5,
                 ['==', ['get', 'confidence'], 'confirmed'], 0.32,
                 ['==', ['get', 'confidence'], 'probable'], 0.2,
@@ -228,6 +281,33 @@ export default function PropertyMap({
             }}
           />
         </Source>
+
+        {/* Dims everything except the selected parcel. Not in interactiveLayerIds, so
+            the faded parcels underneath stay clickable. */}
+        <Source id="focus-mask" type="geojson" data={focusMaskGeoJSON}>
+          <Layer
+            id="focus-mask"
+            type="fill"
+            paint={{
+              'fill-color': '#000',
+              'fill-opacity': selectedProperty ? 0.55 : 0,
+              'fill-opacity-transition': { duration: 400, delay: 0 },
+            }}
+          />
+        </Source>
+
+        {/* Selected outline redrawn above the mask so its outer half isn't dimmed */}
+        <Layer
+          id="selected-outline"
+          type="line"
+          source="parcels"
+          filter={['==', ['get', 'id'], selectedProperty?.id || '']}
+          paint={{
+            'line-color': ['get', 'color'],
+            'line-width': 3,
+            'line-opacity': 0.95,
+          }}
+        />
       </Map>
 
       {/* Hover tooltip — parcel name/address + estimated land value */}
